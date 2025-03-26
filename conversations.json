@@ -1,0 +1,19 @@
+{
+  "conv_1742997828": {
+    "timestamp": "2025-03-26 19:34:04",
+    "history": [
+      [
+        "assistant",
+        "Welcome to the Business Proposal ChatBot! How can I assist you with your business queries today?"
+      ],
+      [
+        "user",
+        "how to deploy chatbot online"
+      ],
+      [
+        "assistant",
+        "I\u2019m here to help with business-related queries only. Ask me about startups, marketing, or investments!"
+      ]
+    ]
+  }
+}
