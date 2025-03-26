@@ -1,9 +1,5 @@
-os
-time
-json
-streamlit
-google
-generativeai
-rapidfuzz
-python-dateutil
-dotenv
+streamlit==1.31.0
+google-generativeai==0.3.2
+rapidfuzz==3.6.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.1
