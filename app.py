@@ -2,7 +2,7 @@ import os
 import time
 import json
 import streamlit as st
-import google.generativeai as genai
+import requests
 from rapidfuzz import process, fuzz
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -12,13 +12,14 @@ st.set_page_config(page_title="Business Proposal ChatBot", page_icon="💼", lay
 
 # Load environment variables
 load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    st.error("⚠️ Missing Google API key. Please check your .env file.")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    st.error("⚠️ Missing OpenRouter API key. Please check your .env file.")
     st.stop()
 
-genai.configure(api_key=GOOGLE_API_KEY)
-gemini_model = genai.GenerativeModel("gemini-1.5-pro")
+# Configuration
+SITE_URL = "http://localhost:8501"  # Adjust based on your deployment
+SITE_NAME = "Business AI Assistant"
 
 # Business keywords
 def load_business_keywords(file_path="business_keywords.txt"):
@@ -32,7 +33,7 @@ def load_business_keywords(file_path="business_keywords.txt"):
         return []
 
 BUSINESS_TOPICS = load_business_keywords()
-NON_BUSINESS_PHRASES = ["hi", "hello", "how are you", "hey", "good morning"]
+NON_BUSINESS_PHRASES = [""]
 NON_BUSINESS_TOPICS = ["football", "sports", "game", "weather", "food"]
 
 # Conversation persistence
@@ -62,13 +63,67 @@ def is_business_related(query):
     best_match = process.extractOne(query_lower, BUSINESS_TOPICS, scorer=fuzz.partial_ratio)
     return best_match[1] > 80 if isinstance(best_match, tuple) and len(best_match) >= 2 else False
 
-# Gemini API call
-def generate_response(prompt, history):
-    system_prompt = """You are a Business Proposal Expert AI. Provide detailed, structured business proposals or advice using Markdown formatting (headers, lists, bold, italics) and emojis. For non-business queries, respond:  
-'I’m all about business proposals and strategies. Hit me with startups, marketing, finance, or proposals!'"""
-    messages = [{"role": "system", "content": system_prompt}] + [{"role": role, "content": content} for role, content in history] + [{"role": "user", "content": prompt}]
+# OpenRouter API call
+def call_openrouter_api(messages):
     try:
-        return gemini_model.generate_content(prompt).text
+        response = requests.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {OPENROUTER_API_KEY}',
+                'Content-Type': 'application/json',
+                'HTTP-Referer': SITE_URL,
+                'X-Title': SITE_NAME
+            },
+            json={
+                'model': 'deepseek/deepseek-chat-v3-0324:free',
+                'messages': messages,
+                'temperature': 0.7,
+                'max_tokens': 1000
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"API Call Error: {e}")
+        raise e
+
+def generate_response(prompt, history):
+    system_prompt = {
+        "role": "system",
+        "content": """You are a professional business assistant AI. Your responses should:
+1. Use rich Markdown formatting (headers, lists, bold, italics)
+2. Structure information clearly with sections
+3. Include emojis for visual appeal
+4. For business questions, provide detailed, formatted advice
+5. For non-business questions, politely respond with:
+   "I specialize in business topics. Please ask about marketing, finance, strategy, or related subjects."
+
+Format business advice like this example:
+
+🕯️ **Candle Business Success Guide**
+*How to Differentiate & Scale*
+
+### ✨ Product Development
+- **Unique Scents**: Experiment with seasonal blends
+- **Premium Materials**: Use soy wax + cotton wicks
+- **Packaging**: Eco-friendly boxes with custom labels
+
+### 📈 Marketing Strategy
+1. Instagram: Post lifestyle photos 3x/week
+2. Collaborations: Partner with local boutiques
+3. Email: Collect addresses for promotions
+
+Would you like me to focus on any specific area?"""
+    }
+    # Convert history to OpenRouter format (role: user/assistant)
+    messages = [system_prompt] + [
+        {"role": role, "content": content}
+        for role, content in history
+    ] + [{"role": "user", "content": prompt}]
+    
+    try:
+        response = call_openrouter_api(messages)
+        return response['choices'][0]['message']['content']
     except Exception as e:
         return f"⚠️ Error: {str(e)}"
 
@@ -262,7 +317,7 @@ st.markdown("""
             transition: all 0.3s ease; 
             box-shadow: 0 0 12px rgba(80, 255, 150, 0.5); 
         }
-        .toggle-btn:hover { 
+        .toggle-cylinder-btn:hover { 
             background: #40cc7a; 
             box-shadow: 0 0 18px rgba(80, 255, 150, 0.7); 
             transform: scale(1.05); 
@@ -345,10 +400,9 @@ with st.sidebar:
     calc_input = st.text_input("Expression", placeholder="e.g., 5 + 3 * 2", key="calc_input", help="Enter a math expression")
     if st.button("Calculate", key="calc_submit", help="Evaluate expression", type="primary"):
         try:
-            # Basic safety check to allow only numbers and operators
             allowed_chars = set("0123456789. +-*/()")
             if all(c in allowed_chars for c in calc_input):
-                result = eval(calc_input)  # Evaluate the expression
+                result = eval(calc_input)
                 st.markdown(f'<p class="calculator-result">Result: {result}</p>', unsafe_allow_html=True)
             else:
                 st.markdown('<p class="calculator-result">Error: Invalid characters</p>', unsafe_allow_html=True)
@@ -366,7 +420,7 @@ st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 st.markdown("""
     <div class="chat-header">
         <h1 class="text-2xl font-semibold text-white">[💼 Business Proposal Assistant]</h1>
-        <p class="text-sm text-gray-500">Powered by Gemini</p>
+        <p class="text-sm text-gray-500">Powered by OpenRouter</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -382,7 +436,16 @@ if "welcome_shown" not in st.session_state:
 
 # Welcome message with graphics
 if not st.session_state.chat_history and not st.session_state.welcome_shown:
-    welcome = "💼 [Business Proposal Bot] - Ready to forge epic proposals with Gemini power! Ask about startups, marketing, or finance. 🚀"
+    welcome = """👋 Welcome to your Business Proposal Assistant!
+
+I specialize in helping with:
+- **Marketing strategies**
+- **Financial planning**
+- **Business development**
+- **Startup advice**
+- **Operational efficiency**
+
+Ask me anything about running or growing your business!"""
     with st.chat_message("assistant", avatar="🤖"):
         st.markdown(f'<div class="assistant-message">{welcome}</div>', unsafe_allow_html=True)
     st.session_state.chat_history.append(("assistant", welcome))
@@ -411,7 +474,7 @@ if user_prompt:
             st.markdown(f'<div class="user-message">{user_prompt}</div>', unsafe_allow_html=True)
         
         with st.spinner("Crafting your response..."):
-            response = generate_response(user_prompt, st.session_state.chat_history) if is_business_related(user_prompt) else "I’m all about business proposals and strategies. Hit me with startups, marketing, finance, or proposals!"
+            response = generate_response(user_prompt, st.session_state.chat_history) if is_business_related(user_prompt) else "I specialize in business topics. Please ask about marketing, finance, strategy, or related subjects."
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(f'<div class="assistant-message">{response}</div>', unsafe_allow_html=True)
             st.session_state.chat_history.append(("user", user_prompt))
@@ -419,6 +482,6 @@ if user_prompt:
             save_conversation(st.session_state.conversation_id, st.session_state.chat_history)
 
 # Footer
-st.markdown('<div class="footer">Powered by Gemini • <a href="https://x.com">Follow us on X</a></div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">Powered by OpenRouter • <a href="https://x.com">Follow us on X</a></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
